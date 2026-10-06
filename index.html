@@ -1,0 +1,440 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<style>:root{padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}body{margin:0;font:14px system-ui,sans-serif}img{max-width:100%}[hidden]{display:none!important}</style>
+<title>Control de Faltas SIA</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,700&family=Public+Sans:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<style>
+/* Layout: herramienta de una columna — carga del archivo + ajustes, resumen en cifras, luego alertas agrupadas por objetivo */
+:root{
+  --bg:#f3f5f4; --surface:#ffffff; --sunk:#e8ecea; --line:#d3dad7;
+  --fg:#16211d; --muted:#5b6964;
+  --accent:#0f6b55; --accent-fg:#ffffff; --accent-soft:#dcefe8;
+  --warn:#9a5b00; --warn-soft:#fbecd2;
+  --crit:#b3261e; --crit-soft:#fbe0dd;
+  --idle:#56606a; --idle-soft:#e4e7ea;
+  --wa:#128c4a;
+  --f-display:"Bricolage Grotesque", "Segoe UI", system-ui, sans-serif;
+  --f-body:"Public Sans", "Segoe UI", system-ui, sans-serif;
+  --f-mono:"JetBrains Mono", ui-monospace, Consolas, monospace;
+}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
+  --bg:#0f1513; --surface:#161e1b; --sunk:#1d2723; --line:#2b3732;
+  --fg:#e5ece9; --muted:#97a6a0;
+  --accent:#4cc3a0; --accent-fg:#06221a; --accent-soft:#163a30;
+  --warn:#f0b45a; --warn-soft:#3a2a10;
+  --crit:#ff8a80; --crit-soft:#41191a;
+  --idle:#a9b3bc; --idle-soft:#242c33;
+  --wa:#3fd17f; color-scheme:dark;
+}}
+:root[data-theme="dark"]{
+  --bg:#0f1513; --surface:#161e1b; --sunk:#1d2723; --line:#2b3732;
+  --fg:#e5ece9; --muted:#97a6a0;
+  --accent:#4cc3a0; --accent-fg:#06221a; --accent-soft:#163a30;
+  --warn:#f0b45a; --warn-soft:#3a2a10;
+  --crit:#ff8a80; --crit-soft:#41191a;
+  --idle:#a9b3bc; --idle-soft:#242c33;
+  --wa:#3fd17f; color-scheme:dark;
+}
+*{box-sizing:border-box}
+body{background:var(--bg);color:var(--fg);font-family:var(--f-body);font-size:15px;line-height:1.5}
+.wrap{max-width:1040px;margin:0 auto;padding-inline:16px;padding-block:28px 64px;display:grid;gap:22px}
+h1,h2,h3{font-family:var(--f-display);margin:0;text-wrap:balance;letter-spacing:-.01em}
+h1{font-size:clamp(1.6rem,3.6vw,2.2rem);line-height:1.1}
+h2{font-size:1.15rem}
+.lede{color:var(--muted);margin:6px 0 0;max-width:62ch}
+.eyebrow{font-size:.72rem;text-transform:uppercase;letter-spacing:.09em;color:var(--muted);font-weight:600}
+.mono{font-family:var(--f-mono);font-variant-numeric:tabular-nums}
+button,input,select{font:inherit;color:inherit}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+
+/* Barra superior: carga + ajustes */
+.setup{display:grid;grid-template-columns:minmax(0,1.3fr) minmax(0,1fr);gap:14px}
+@media (max-width:760px){.setup{grid-template-columns:1fr}}
+.drop{border:1.5px dashed var(--line);border-radius:12px;background:var(--surface);padding:18px;display:flex;gap:14px;align-items:center;cursor:pointer;transition:border-color .15s,background .15s}
+.drop:hover,.drop.over{border-color:var(--accent);background:var(--accent-soft)}
+.drop svg{flex:none;color:var(--accent)}
+.drop strong{display:block}
+.drop span{color:var(--muted);font-size:.88rem}
+.drop input{display:none}
+.settings{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:14px 16px;display:grid;gap:10px}
+.field{display:grid;gap:4px}
+.field label{font-size:.8rem;font-weight:600;color:var(--muted)}
+.field input{background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:7px 10px;width:100%}
+.field small{color:var(--muted);font-size:.76rem}
+.row2{display:grid;grid-template-columns:110px minmax(0,1fr);gap:10px}
+
+.banner{border-radius:10px;padding:10px 14px;font-size:.9rem;display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+.banner.sample{background:var(--warn-soft);color:var(--warn)}
+.banner.ok{background:var(--accent-soft);color:var(--accent)}
+.banner.err{background:var(--crit-soft);color:var(--crit)}
+.banner b{font-weight:600}
+
+/* Resumen */
+.stats{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:1px;background:var(--line);border:1px solid var(--line);border-radius:12px;overflow:hidden}
+@media (max-width:760px){.stats{grid-template-columns:repeat(2,minmax(0,1fr))}}
+.stat{background:var(--surface);padding:14px 16px;display:grid;gap:2px}
+.stat .n{font-family:var(--f-display);font-size:2rem;font-weight:700;line-height:1.1;font-variant-numeric:tabular-nums}
+.stat .l{font-size:.82rem;color:var(--muted)}
+.stat.crit .n{color:var(--crit)}
+.stat.idle .n{color:var(--idle)}
+
+/* Filtros */
+.tools{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+.chip{border:1px solid var(--line);background:var(--surface);border-radius:999px;padding:5px 12px;font-size:.85rem;cursor:pointer;display:inline-flex;gap:6px;align-items:center}
+.chip[aria-pressed="true"]{background:var(--fg);color:var(--bg);border-color:var(--fg)}
+.chip .c{font-family:var(--f-mono);font-size:.78rem;opacity:.75}
+.search{margin-left:auto;min-width:0;flex:1 1 220px;max-width:320px;background:var(--surface);border:1px solid var(--line);border-radius:999px;padding:6px 14px}
+
+/* Grupos por objetivo */
+.groups{display:grid;gap:12px}
+.group{background:var(--surface);border:1px solid var(--line);border-radius:12px;overflow:hidden}
+.group>summary{list-style:none;cursor:pointer;padding:12px 16px;display:flex;gap:12px;align-items:center;flex-wrap:wrap}
+.group>summary::-webkit-details-marker{display:none}
+.group>summary .caret{transition:transform .15s;color:var(--muted)}
+.group[open]>summary .caret{transform:rotate(90deg)}
+.group h3{font-size:1.02rem;flex:1 1 200px;min-width:0}
+.group .meta{font-size:.82rem;color:var(--muted)}
+.gbar{display:flex;gap:10px;align-items:end;flex-wrap:wrap;padding:10px 16px;background:var(--sunk);border-top:1px solid var(--line)}
+.gbar .field{flex:1 1 220px}
+.gbar .field input{background:var(--surface)}
+
+.person{display:grid;grid-template-columns:64px minmax(0,1fr) auto;gap:14px;padding:14px 16px;border-top:1px solid var(--line);align-items:start}
+@media (max-width:620px){.person{grid-template-columns:52px minmax(0,1fr)}.person .actions{grid-column:1/-1}}
+.count{border-radius:10px;text-align:center;padding:6px 0 4px;display:grid}
+.count b{font-family:var(--f-display);font-size:1.6rem;line-height:1}
+.count span{font-size:.66rem;text-transform:uppercase;letter-spacing:.08em}
+.sev-warn .count{background:var(--warn-soft);color:var(--warn)}
+.sev-crit .count{background:var(--crit-soft);color:var(--crit)}
+.sev-idle .count{background:var(--idle-soft);color:var(--idle)}
+.who{min-width:0;display:grid;gap:4px}
+.who .name{font-weight:600}
+.who .ids{font-size:.78rem;color:var(--muted)}
+.tags{display:flex;flex-wrap:wrap;gap:6px}
+.tag{font-size:.74rem;border-radius:6px;padding:1px 7px;background:var(--sunk);color:var(--muted)}
+.tag.crit{background:var(--crit-soft);color:var(--crit)}
+.tag.idle{background:var(--idle-soft);color:var(--idle)}
+.dates{display:flex;flex-wrap:wrap;gap:4px}
+.d{font-family:var(--f-mono);font-size:.74rem;border:1px solid var(--line);border-radius:5px;padding:0 5px;white-space:nowrap}
+.actions{display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end}
+.btn{display:inline-flex;align-items:center;gap:6px;border-radius:8px;padding:7px 12px;font-size:.85rem;font-weight:600;cursor:pointer;text-decoration:none;border:1px solid var(--line);background:var(--surface);color:var(--fg);white-space:nowrap}
+.btn:hover{border-color:var(--fg)}
+.btn.wa{background:var(--wa);border-color:var(--wa);color:#fff}
+.btn.wa:hover{filter:brightness(1.08)}
+.btn.primary{background:var(--accent);border-color:var(--accent);color:var(--accent-fg)}
+.empty{padding:28px;text-align:center;color:var(--muted);background:var(--surface);border:1px dashed var(--line);border-radius:12px}
+.more{justify-self:center}
+.toast{position:fixed;left:50%;bottom:calc(20px + env(safe-area-inset-bottom,0px));transform:translateX(-50%);background:var(--fg);color:var(--bg);padding:8px 16px;border-radius:999px;font-size:.88rem;opacity:0;transition:opacity .2s;pointer-events:none}
+.toast.show{opacity:1}
+footer{color:var(--muted);font-size:.8rem;max-width:70ch}
+@media (prefers-reduced-motion:reduce){*{transition:none!important}}
+</style>
+
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div class="eyebrow">Pre-nómina Básico · SIA</div>
+    <h1>Control de faltas</h1>
+    <p class="lede">Subí el reporte de pre-nómina exportado de SIA y la página marca a quienes superan el límite de faltas del período, con las fechas exactas, para pedirle el motivo al responsable por WhatsApp.</p>
+  </header>
+
+  <section class="setup">
+    <label class="drop" id="drop" for="file">
+      <svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/><path d="M9 13l2 2 4-4"/></svg>
+      <div>
+        <strong>Subir reporte .xlsx</strong>
+        <span>Arrastralo acá o hacé clic. Se procesa en tu navegador: el archivo no sale de esta computadora.</span>
+      </div>
+      <input type="file" id="file" accept=".xlsx,.xls">
+    </label>
+    <div class="settings">
+      <div class="row2">
+        <div class="field">
+          <label for="umbral">Alertar desde</label>
+          <input type="number" id="umbral" min="1" max="31" value="3" class="mono">
+        </div>
+        <div class="field">
+          <label for="telDefault">WhatsApp del responsable (general)</label>
+          <input type="tel" id="telDefault" placeholder="Ej: 11 2345 6789" class="mono">
+        </div>
+      </div>
+      <small class="field" style="color:var(--muted);font-size:.76rem">Se usa cuando el objetivo no tiene un número propio. Sin número, WhatsApp te deja elegir el contacto.</small>
+    </div>
+  </section>
+
+  <div id="banner" class="banner sample"><b>Datos de ejemplo.</b> Son personas inventadas para mostrar cómo funciona. Subí el reporte real para ver tus datos.</div>
+
+  <section class="stats" id="stats" aria-label="Resumen del período"></section>
+
+  <section class="tools" aria-label="Filtros">
+    <button class="chip" data-f="alert" aria-pressed="true">Con alerta <span class="c" id="cAlert"></span></button>
+    <button class="chip" data-f="crit" aria-pressed="false">5 o más <span class="c" id="cCrit"></span></button>
+    <button class="chip" data-f="idle" aria-pressed="false">Sin ninguna marcación <span class="c" id="cIdle"></span></button>
+    <input type="search" id="q" class="search" placeholder="Buscar nombre, legajo u objetivo" aria-label="Buscar">
+  </section>
+
+  <section class="groups" id="groups"></section>
+  <button class="btn more" id="more" hidden>Mostrar más objetivos</button>
+
+  <footer>Cuenta como falta cada día con turno asignado en que SIA registró AUSENCIA (columna AUSENCIA de la hoja Detalle; coincide con AUSENCIAS · Cantidad de la hoja General). “Sin ninguna marcación” agrupa a quienes no marcaron ni un día del período: suele tratarse de bajas, licencias o personas que no usan el sistema, y se separan para no mezclarlas con faltas reales.</footer>
+</div>
+<div class="toast" id="toast" role="status"></div>
+
+<script>
+(function(){
+const $=s=>document.querySelector(s);
+const store={get(k){try{return localStorage.getItem(k)}catch(e){return null}},set(k,v){try{localStorage.setItem(k,v)}catch(e){}}};
+const DIAS=['dom','lun','mar','mié','jue','vie','sáb'];
+const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const norm=s=>String(s??'').normalize('NFD').replace(/[̀-ͯ]/g,'').toUpperCase().trim();
+
+let data=null, filter='alert', query='', shownGroups=12;
+let telByObj={}; try{telByObj=JSON.parse(store.get('telByObj')||'{}')}catch(e){}
+$('#telDefault').value=store.get('telDefault')||'';
+$('#umbral').value=store.get('umbral')||3;
+
+/* ---------- Fechas ---------- */
+function toDate(v){
+  if(v instanceof Date) return new Date(Date.UTC(v.getFullYear(),v.getMonth(),v.getDate()));
+  if(typeof v==='number') return new Date(Date.UTC(1899,11,30)+Math.round(v)*864e5);
+  const m=String(v).match(/(\d{1,2})[\/-](\d{1,2})[\/-](\d{4})/);
+  if(m) return new Date(Date.UTC(+m[3],m[2]-1,+m[1]));
+  const d=new Date(v); return isNaN(d)?null:new Date(Date.UTC(d.getFullYear(),d.getMonth(),d.getDate()));
+}
+const dd=d=>String(d.getUTCDate()).padStart(2,'0')+'/'+String(d.getUTCMonth()+1).padStart(2,'0');
+const ddyy=d=>dd(d)+'/'+d.getUTCFullYear();
+const dayLabel=d=>DIAS[d.getUTCDay()]+' '+dd(d);
+function fmtCuil(c){c=String(c||'').replace(/\D/g,'');return c.length===11?c.slice(0,2)+'-'+c.slice(2,10)+'-'+c.slice(10):String(c||'')}
+
+/* ---------- Lectura del Excel ---------- */
+function findHeader(rows){
+  for(let i=0;i<Math.min(rows.length,30);i++){ if(norm(rows[i][0])==='ID' && rows[i].some(c=>norm(c).startsWith('NOMBRE'))) return i; }
+  return -1;
+}
+function col(h,name){const n=norm(name);return h.findIndex(c=>norm(c)===n)}
+
+function parseWorkbook(wb){
+  const sheetName=n=>wb.SheetNames.find(s=>norm(s)===n);
+  const det=sheetName('DETALLE'), gen=sheetName('GENERAL');
+  if(!det) throw new Error('No encontré la hoja “Detalle”. Exportá el reporte “Pre-nómina Básico” de SIA sin modificarlo.');
+  const D=XLSX.utils.sheet_to_json(wb.Sheets[det],{header:1,raw:true,defval:''});
+  const hi=findHeader(D); if(hi<0) throw new Error('La hoja Detalle no tiene la fila de títulos esperada (ID, NOMBRE, APELLIDO…).');
+  const h=D[hi];
+  const C={id:col(h,'ID'),nom:col(h,'NOMBRE'),ape:col(h,'APELLIDO'),obj:col(h,'NIVEL ORGANIZACIONAL'),cargo:col(h,'CARGO'),
+    fecha:col(h,'FECHA'),ini:col(h,'INICIO'),fin:col(h,'FIN'),marc:col(h,'MARCACIONES'),aus:col(h,'AUSENCIA'),ev:col(h,'EVENTUALIDAD')};
+  for(const k of ['id','fecha','aus']) if(C[k]<0) throw new Error('Falta la columna '+({id:'ID',fecha:'FECHA',aus:'AUSENCIA'})[k]+' en la hoja Detalle.');
+
+  const people=new Map(); let min=null,max=null;
+  for(let i=hi+1;i<D.length;i++){
+    const r=D[i]; const id=String(r[C.id]).trim(); if(!id) continue;
+    const f=toDate(r[C.fecha]); if(!f) continue;
+    if(!min||f<min)min=f; if(!max||f>max)max=f;
+    let p=people.get(id);
+    if(!p){p={id,nombre:String(r[C.nom]).trim(),apellido:String(r[C.ape]).trim(),obj:String(r[C.obj]).trim()||'Sin objetivo',cargo:String(r[C.cargo]).trim(),cuil:'',days:[],marcados:0};people.set(id,p)}
+    const libre=norm(r[C.ini])==='LIBRE';
+    const aus=(+r[C.aus]||0)>0;
+    const marco=C.marc>=0 && String(r[C.marc]).trim()!=='';
+    if(marco)p.marcados++;
+    p.days.push({f,libre,aus,turno:libre?'':(r[C.ini]+'–'+r[C.fin])});
+  }
+  // CUIL desde la hoja General (la Detalle no lo trae)
+  if(gen){
+    const G=XLSX.utils.sheet_to_json(wb.Sheets[gen],{header:1,raw:true,defval:''});
+    const gh=findHeader(G);
+    if(gh>=0){const ci=col(G[gh],'CEDULA'), ii=col(G[gh],'ID');
+      if(ci>=0) for(let i=gh+1;i<G.length;i++){const p=people.get(String(G[i][ii]).trim()); if(p)p.cuil=G[i][ci];}}
+  }
+  const list=[...people.values()].map(p=>{
+    p.days.sort((a,b)=>a.f-b.f);
+    p.faltas=p.days.filter(d=>d.aus);
+    // racha: faltas seguidas en días con turno (los francos no cortan la racha)
+    let run=0,best=0; for(const d of p.days){ if(d.libre)continue; if(d.aus){run++;best=Math.max(best,run)} else run=0; }
+    p.racha=best; p.sinMarcas=p.marcados===0;
+    p.turnos=p.days.filter(d=>!d.libre).length;
+    delete p.days; return p;
+  });
+  if(!list.length) throw new Error('La hoja Detalle no tiene filas de trabajadores.');
+  return {people:list,from:min,to:max,sample:false};
+}
+
+/* ---------- Datos de ejemplo (inventados) ---------- */
+function sampleData(){
+  const from=new Date(Date.UTC(2026,8,6)), to=new Date(Date.UTC(2026,9,6));
+  const mk=(id,nombre,apellido,obj,cuil,diasFalta,opts={})=>{
+    const faltas=diasFalta.map(n=>({f:new Date(Date.UTC(2026,8,n)),aus:true}));
+    return {id,nombre,apellido,obj,cargo:'Operario De Limpieza',cuil,faltas,racha:opts.racha||1,sinMarcas:!!opts.sin,turnos:opts.turnos||22,marcados:opts.sin?0:10};
+  };
+  const people=[
+    mk('900101','Marta Liliana','Ejemplo','Hospital Del Carmen (ejemplo)','27300000011',[8,9,10,11,15,22,29],{racha:4}),
+    mk('900102','Carlos Daniel','Muestra','Hospital Del Carmen (ejemplo)','20300000022',[14,21,28]),
+    mk('900103','Rosa Inés','Prueba','Hospital Del Carmen (ejemplo)','27300000033',[7,8,9],{racha:3}),
+    mk('900104','Jorge Luis','Demo','Puertos (ejemplo)','20300000044',[1,12,19,26].filter(n=>n>5).concat([30]),{}),
+    mk('900105','Ana Belén','Ficticia','Puertos (ejemplo)','27300000055',[7,8,9,10,11,14,15,16,17,18,21,22,23,24,25,28,29,30],{sin:true,racha:18}),
+    mk('900106','Pablo Andrés','Inventado','Banco Provincia Mdq (ejemplo)','20300000066',[16,17,23,24,30],{racha:2}),
+    mk('900107','Lucía','Ejemplar','Banco Provincia Mdq (ejemplo)','27300000077',[11]),
+    mk('900108','Nora Graciela','Supuesta','Banco Provincia Mdq (ejemplo)','27300000088',[]),
+  ];
+  return {people,from,to,sample:true};
+}
+
+/* ---------- Teléfonos y mensaje ---------- */
+function normTel(t){
+  let d=String(t||'').replace(/\D/g,''); if(!d)return '';
+  d=d.replace(/^00/,'');
+  if(d.startsWith('0'))d=d.slice(1);
+  if(d.length===10)return '549'+d;             // 11 2345 6789 → 54 9 11 2345 6789
+  if(d.length===12&&d.startsWith('54')&&d[2]!=='9')return '549'+d.slice(2);
+  return d;
+}
+const telFor=obj=>normTel(telByObj[obj]||$('#telDefault').value);
+function periodo(){return ddyy(data.from)+' al '+ddyy(data.to)}
+function msgPerson(p){
+  const fechas=p.faltas.map(x=>dayLabel(x.f)).join(', ');
+  let m=`Hola, te escribo por el control de asistencia del período ${periodo()}.\n\n`+
+    `*${p.nombre} ${p.apellido}* (legajo ${p.id}, ${p.obj}) registra *${p.faltas.length} faltas*: ${fechas}.`;
+  if(p.sinMarcas)m+=`\n\nAdemás no tiene ninguna marcación en todo el período.`;
+  return m+`\n\n¿Me podés indicar el motivo de las ausencias? (enfermedad, licencia, problema con la marcación, renuncia, etc.)\nGracias.`;
+}
+function msgGroup(obj,ps){
+  let m=`Hola, te escribo por el control de asistencia del período ${periodo()} en *${obj}*.\n\nEstas personas superan el límite de faltas:\n`;
+  for(const p of ps)m+=`\n• *${p.nombre} ${p.apellido}* (legajo ${p.id}): ${p.faltas.length} faltas${p.sinMarcas?' — sin ninguna marcación':''} — ${p.faltas.map(x=>dd(x.f)).join(', ')}`;
+  return m+`\n\n¿Me podés indicar el motivo de cada caso? Gracias.`;
+}
+const waUrl=(tel,msg)=>'https://wa.me/'+(tel||'')+'?text='+encodeURIComponent(msg);
+
+/* ---------- Render ---------- */
+const umbral=()=>Math.max(1,+$('#umbral').value||3);
+function sev(p){ if(p.sinMarcas)return 'idle'; return p.faltas.length>=5?'crit':'warn'; }
+
+function render(){
+  const u=umbral(), ps=data.people;
+  const alert=ps.filter(p=>p.faltas.length>=u);
+  const totalF=ps.reduce((s,p)=>s+p.faltas.length,0);
+  const idle=alert.filter(p=>p.sinMarcas), activeAlert=alert.filter(p=>!p.sinMarcas);
+  const crit=activeAlert.filter(p=>p.faltas.length>=5);
+  $('#stats').innerHTML=`
+    <div class="stat"><span class="n">${ps.length.toLocaleString('es-AR')}</span><span class="l">trabajadores en el reporte · ${dd(data.from)} al ${dd(data.to)}</span></div>
+    <div class="stat"><span class="n">${totalF.toLocaleString('es-AR')}</span><span class="l">faltas en total en el período</span></div>
+    <div class="stat crit"><span class="n">${activeAlert.length.toLocaleString('es-AR')}</span><span class="l">con ${u} o más faltas (y alguna marcación)</span></div>
+    <div class="stat idle"><span class="n">${ps.filter(p=>p.sinMarcas).length.toLocaleString('es-AR')}</span><span class="l">sin ninguna marcación en el período</span></div>`;
+  $('#cAlert').textContent=activeAlert.length; $('#cCrit').textContent=crit.length; $('#cIdle').textContent=idle.length;
+
+  let list = filter==='idle'?idle : filter==='crit'?crit : activeAlert;
+  const q=norm(query);
+  if(q) list=list.filter(p=>norm(p.nombre+' '+p.apellido+' '+p.id+' '+p.obj+' '+p.cuil).includes(q));
+
+  const groups=new Map();
+  for(const p of list){(groups.get(p.obj)||groups.set(p.obj,[]).get(p.obj)).push(p)}
+  const gs=[...groups.entries()].map(([obj,arr])=>({obj,arr:arr.sort((a,b)=>b.faltas.length-a.faltas.length||a.apellido.localeCompare(b.apellido)),tot:arr.reduce((s,p)=>s+p.faltas.length,0)}))
+    .sort((a,b)=>b.arr.length-a.arr.length||b.tot-a.tot);
+
+  if(!gs.length){
+    $('#groups').innerHTML=`<div class="empty">${q?'Nadie coincide con la búsqueda.':`Nadie supera ${u} faltas en este grupo.`}</div>`;
+    $('#more').hidden=true; return;
+  }
+  const visible=gs.slice(0,shownGroups);
+  $('#groups').innerHTML=visible.map((g,gi)=>`
+    <details class="group" ${gi<3||q?'open':''}>
+      <summary>
+        <svg class="caret" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg>
+        <h3>${esc(g.obj)}</h3>
+        <span class="meta mono">${g.arr.length} ${g.arr.length===1?'persona':'personas'} · ${g.tot} faltas</span>
+      </summary>
+      <div class="gbar">
+        <div class="field">
+          <label for="tel-${gi}">WhatsApp del responsable de este objetivo</label>
+          <input type="tel" id="tel-${gi}" class="mono" data-obj="${esc(g.obj)}" value="${esc(telByObj[g.obj]||'')}" placeholder="${esc($('#telDefault').value||'Usa el número general')}">
+        </div>
+        <a class="btn wa" target="_blank" rel="noopener" data-group="${gi}">${waIcon} Enviar resumen del objetivo</a>
+        <button class="btn" data-copyg="${gi}">Copiar</button>
+      </div>
+      ${g.arr.map((p,pi)=>personHtml(p,gi,pi)).join('')}
+    </details>`).join('');
+  $('#more').hidden=gs.length<=shownGroups;
+  $('#more').textContent=`Mostrar más objetivos (${gs.length-shownGroups} restantes)`;
+  current=visible; refreshLinks();
+}
+let current=[];
+const waIcon='<svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 2a10 10 0 0 0-8.6 15.1L2 22l5-1.3A10 10 0 1 0 12 2zm0 18.2a8.2 8.2 0 0 1-4.2-1.2l-.3-.2-3 .8.8-2.9-.2-.3A8.2 8.2 0 1 1 12 20.2zm4.5-6.1c-.2-.1-1.5-.7-1.7-.8s-.4-.1-.6.1-.7.8-.8 1-.3.2-.5.1a6.7 6.7 0 0 1-3.3-2.9c-.3-.4.3-.4.7-1.4.1-.2 0-.3 0-.4l-.8-1.8c-.2-.5-.4-.4-.6-.4h-.5a1 1 0 0 0-.7.3 3 3 0 0 0-.9 2.2 5.2 5.2 0 0 0 1.1 2.7 11.8 11.8 0 0 0 4.5 4c1.7.7 2.3.8 3.2.6a2.7 2.7 0 0 0 1.8-1.2 2.2 2.2 0 0 0 .1-1.2c0-.1-.2-.2-.5-.3z"/></svg>';
+
+function personHtml(p,gi,pi){
+  const s=sev(p);
+  const tags=[];
+  if(p.sinMarcas)tags.push('<span class="tag idle">Sin ninguna marcación en el período</span>');
+  if(p.racha>=3&&!p.sinMarcas)tags.push(`<span class="tag crit">${p.racha} días seguidos</span>`);
+  if(p.turnos)tags.push(`<span class="tag">${p.faltas.length} de ${p.turnos} turnos</span>`);
+  if(p.cargo&&norm(p.cargo)!=='OPERARIO DE LIMPIEZA')tags.push(`<span class="tag">${esc(p.cargo)}</span>`);
+  return `<div class="person sev-${s}">
+    <div class="count"><b>${p.faltas.length}</b><span>faltas</span></div>
+    <div class="who">
+      <div class="name">${esc(p.apellido)}, ${esc(p.nombre)}</div>
+      <div class="ids mono">Legajo ${esc(p.id)}${p.cuil?' · CUIL '+esc(fmtCuil(p.cuil)):''}</div>
+      <div class="tags">${tags.join('')}</div>
+      <div class="dates">${p.faltas.map(x=>`<span class="d">${dayLabel(x.f)}</span>`).join('')}</div>
+    </div>
+    <div class="actions">
+      <a class="btn wa" target="_blank" rel="noopener" data-p="${gi}:${pi}">${waIcon} Preguntar motivo</a>
+      <button class="btn" data-copy="${gi}:${pi}">Copiar</button>
+    </div>
+  </div>`;
+}
+function refreshLinks(){
+  document.querySelectorAll('a[data-p]').forEach(a=>{const [gi,pi]=a.dataset.p.split(':');const g=current[gi];a.href=waUrl(telFor(g.obj),msgPerson(g.arr[pi]))});
+  document.querySelectorAll('a[data-group]').forEach(a=>{const g=current[a.dataset.group];a.href=waUrl(telFor(g.obj),msgGroup(g.obj,g.arr))});
+}
+
+/* ---------- Copiar ---------- */
+function toast(t){const el=$('#toast');el.textContent=t;el.classList.add('show');clearTimeout(toast.t);toast.t=setTimeout(()=>el.classList.remove('show'),1800)}
+function copy(text){
+  const fallback=()=>{const ta=document.createElement('textarea');ta.value=text;document.body.appendChild(ta);ta.select();
+    let ok=false;try{ok=document.execCommand('copy')}catch(e){} ta.remove(); toast(ok?'Mensaje copiado':'No se pudo copiar automáticamente');};
+  if(navigator.clipboard&&navigator.clipboard.writeText) navigator.clipboard.writeText(text).then(()=>toast('Mensaje copiado'),fallback); else fallback();
+}
+
+/* ---------- Eventos ---------- */
+document.addEventListener('click',e=>{
+  const c=e.target.closest('[data-copy]'); if(c){const [gi,pi]=c.dataset.copy.split(':');copy(msgPerson(current[gi].arr[pi]));return}
+  const cg=e.target.closest('[data-copyg]'); if(cg){const g=current[cg.dataset.copyg];copy(msgGroup(g.obj,g.arr));return}
+  const ch=e.target.closest('.chip'); if(ch){filter=ch.dataset.f;shownGroups=12;document.querySelectorAll('.chip').forEach(x=>x.setAttribute('aria-pressed',String(x===ch)));render()}
+});
+document.addEventListener('input',e=>{
+  if(e.target.matches('input[data-obj]')){const v=e.target.value.trim();if(v)telByObj[e.target.dataset.obj]=v;else delete telByObj[e.target.dataset.obj];store.set('telByObj',JSON.stringify(telByObj));refreshLinks()}
+});
+$('#telDefault').addEventListener('input',e=>{store.set('telDefault',e.target.value);refreshLinks();document.querySelectorAll('input[data-obj]').forEach(i=>i.placeholder=e.target.value||'Usa el número general')});
+$('#umbral').addEventListener('input',e=>{store.set('umbral',e.target.value);shownGroups=12;render()});
+$('#q').addEventListener('input',e=>{query=e.target.value;shownGroups=12;render()});
+$('#more').addEventListener('click',()=>{shownGroups+=12;render()});
+
+function setBanner(cls,html){const b=$('#banner');b.className='banner '+cls;b.innerHTML=html}
+function loadFile(f){
+  if(!f)return;
+  if(typeof XLSX==='undefined'){setBanner('err','<b>No cargó el lector de Excel.</b> Revisá la conexión a internet y recargá la página.');return}
+  setBanner('ok','Leyendo <b>'+esc(f.name)+'</b>…');
+  const r=new FileReader();
+  r.onload=ev=>{
+    try{
+      const wb=XLSX.read(new Uint8Array(ev.target.result),{type:'array'});
+      data=parseWorkbook(wb); shownGroups=12; render();
+      setBanner('ok',`<b>${esc(f.name)}</b> · ${data.people.length.toLocaleString('es-AR')} trabajadores · período ${periodo()}`);
+    }catch(err){setBanner('err','<b>No se pudo leer el archivo.</b> '+esc(err.message||err))}
+  };
+  r.onerror=()=>setBanner('err','<b>No se pudo abrir el archivo.</b> Probá de nuevo.');
+  r.readAsArrayBuffer(f);
+}
+$('#file').addEventListener('change',e=>loadFile(e.target.files[0]));
+const drop=$('#drop');
+['dragenter','dragover'].forEach(t=>drop.addEventListener(t,e=>{e.preventDefault();drop.classList.add('over')}));
+['dragleave','drop'].forEach(t=>drop.addEventListener(t,e=>{e.preventDefault();drop.classList.remove('over')}));
+drop.addEventListener('drop',e=>loadFile(e.dataTransfer.files[0]));
+
+data=sampleData(); render();
+})();
+</script>
+</body>
+</html>
