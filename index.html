@@ -128,7 +128,8 @@ button,input,select{font:inherit;color:inherit}
 .btn.wa:hover{filter:brightness(1.08)}
 .btn.primary{background:var(--accent);border-color:var(--accent);color:var(--accent-fg)}
 .empty{padding:28px;text-align:center;color:var(--muted);background:var(--surface);border:1px dashed var(--line);border-radius:12px}
-.more{justify-self:center}
+.banner .btn{margin-left:auto}
+.empty label{color:var(--accent);font-weight:600;cursor:pointer;text-decoration:underline}
 .toast{position:fixed;left:50%;bottom:calc(20px + env(safe-area-inset-bottom,0px));transform:translateX(-50%);background:var(--fg);color:var(--bg);padding:8px 16px;border-radius:999px;font-size:.88rem;opacity:0;transition:opacity .2s;pointer-events:none}
 .toast.show{opacity:1}
 footer{color:var(--muted);font-size:.8rem;max-width:70ch}
@@ -180,7 +181,6 @@ footer{color:var(--muted);font-size:.8rem;max-width:70ch}
   </section>
 
   <section class="groups" id="groups"></section>
-  <button class="btn more" id="more" hidden>Mostrar más objetivos</button>
 
   <footer>Cuenta como falta cada día con turno asignado en que SIA registró AUSENCIA (columna AUSENCIA de la hoja Detalle; coincide con AUSENCIAS · Cantidad de la hoja General). “Sin ninguna marcación” agrupa a quienes no marcaron ni un día del período: suele tratarse de bajas, licencias o personas que no usan el sistema, y se separan para no mezclarlas con faltas reales.</footer>
 </div>
@@ -194,7 +194,7 @@ const DIAS=['dom','lun','mar','mié','jue','vie','sáb'];
 const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const norm=s=>String(s??'').normalize('NFD').replace(/[̀-ͯ]/g,'').toUpperCase().trim();
 
-let data=null, filter='alert', query='', shownGroups=12;
+let data=null, filter='alert', query='';
 let telByObj={}; try{telByObj=JSON.parse(store.get('telByObj')||'{}')}catch(e){}
 $('#telDefault').value=store.get('telDefault')||'';
 $('#umbral').value=store.get('umbral')||3;
@@ -313,6 +313,9 @@ const umbral=()=>Math.max(1,+$('#umbral').value||3);
 function sev(p){ if(p.sinMarcas)return 'idle'; return p.faltas.length>=5?'crit':'warn'; }
 
 function render(){
+  const empty=!data;
+  $('#stats').hidden=empty; $('.tools').hidden=empty;
+  if(empty){$('#groups').innerHTML='<div class="empty">No hay ningún reporte cargado. <label for="file">Subí un Excel de SIA</label> para ver las faltas.</div>';return}
   const u=umbral(), ps=data.people;
   const alert=ps.filter(p=>p.faltas.length>=u);
   const totalF=ps.reduce((s,p)=>s+p.faltas.length,0);
@@ -336,11 +339,11 @@ function render(){
 
   if(!gs.length){
     $('#groups').innerHTML=`<div class="empty">${q?'Nadie coincide con la búsqueda.':`Nadie supera ${u} faltas en este grupo.`}</div>`;
-    $('#more').hidden=true; return;
+    return;
   }
-  const visible=gs.slice(0,shownGroups);
+  const visible=gs;
   $('#groups').innerHTML=visible.map((g,gi)=>`
-    <details class="group" ${gi<3||q?'open':''}>
+    <details class="group" ${q?'open':''}>
       <summary>
         <svg class="caret" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg>
         <h3>${esc(g.obj)}</h3>
@@ -356,8 +359,6 @@ function render(){
       </div>
       ${g.arr.map((p,pi)=>personHtml(p,gi,pi)).join('')}
     </details>`).join('');
-  $('#more').hidden=gs.length<=shownGroups;
-  $('#more').textContent=`Mostrar más objetivos (${gs.length-shownGroups} restantes)`;
   current=visible; refreshLinks();
 }
 let current=[];
@@ -401,15 +402,21 @@ function copy(text){
 document.addEventListener('click',e=>{
   const c=e.target.closest('[data-copy]'); if(c){const [gi,pi]=c.dataset.copy.split(':');copy(msgPerson(current[gi].arr[pi]));return}
   const cg=e.target.closest('[data-copyg]'); if(cg){const g=current[cg.dataset.copyg];copy(msgGroup(g.obj,g.arr));return}
-  const ch=e.target.closest('.chip'); if(ch){filter=ch.dataset.f;shownGroups=12;document.querySelectorAll('.chip').forEach(x=>x.setAttribute('aria-pressed',String(x===ch)));render()}
+  const ch=e.target.closest('.chip'); if(ch){filter=ch.dataset.f;document.querySelectorAll('.chip').forEach(x=>x.setAttribute('aria-pressed',String(x===ch)));render()}
 });
 document.addEventListener('input',e=>{
   if(e.target.matches('input[data-obj]')){const v=e.target.value.trim();if(v)telByObj[e.target.dataset.obj]=v;else delete telByObj[e.target.dataset.obj];store.set('telByObj',JSON.stringify(telByObj));refreshLinks()}
 });
 $('#telDefault').addEventListener('input',e=>{store.set('telDefault',e.target.value);refreshLinks();document.querySelectorAll('input[data-obj]').forEach(i=>i.placeholder=e.target.value||'Usa el número general')});
-$('#umbral').addEventListener('input',e=>{store.set('umbral',e.target.value);shownGroups=12;render()});
-$('#q').addEventListener('input',e=>{query=e.target.value;shownGroups=12;render()});
-$('#more').addEventListener('click',()=>{shownGroups+=12;render()});
+$('#umbral').addEventListener('input',e=>{store.set('umbral',e.target.value);render()});
+$('#q').addEventListener('input',e=>{query=e.target.value;render()});
+function clearAll(){
+  data=null; query=''; filter='alert'; $('#q').value=''; $('#file').value='';
+  document.querySelectorAll('.chip').forEach(x=>x.setAttribute('aria-pressed',String(x.dataset.f==='alert')));
+  setBanner('sample','<b>Reporte borrado.</b> Subí otro Excel de SIA para analizarlo.');
+  render(); window.scrollTo({top:0,behavior:'smooth'});
+}
+document.addEventListener('click',e=>{if(e.target.closest('#clear'))clearAll()});
 
 function setBanner(cls,html){const b=$('#banner');b.className='banner '+cls;b.innerHTML=html}
 function loadFile(f){
@@ -420,8 +427,8 @@ function loadFile(f){
   r.onload=ev=>{
     try{
       const wb=XLSX.read(new Uint8Array(ev.target.result),{type:'array'});
-      data=parseWorkbook(wb); shownGroups=12; render();
-      setBanner('ok',`<b>${esc(f.name)}</b> · ${data.people.length.toLocaleString('es-AR')} trabajadores · período ${periodo()}`);
+      data=parseWorkbook(wb); render();
+      setBanner('ok',`<b>${esc(f.name)}</b> · ${data.people.length.toLocaleString('es-AR')} trabajadores · período ${periodo()} <button class="btn" id="clear" type="button">Borrar y cargar otro Excel</button>`);
     }catch(err){setBanner('err','<b>No se pudo leer el archivo.</b> '+esc(err.message||err))}
   };
   r.onerror=()=>setBanner('err','<b>No se pudo abrir el archivo.</b> Probá de nuevo.');
