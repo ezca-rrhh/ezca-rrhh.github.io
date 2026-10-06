@@ -169,7 +169,7 @@ footer{color:var(--muted);font-size:.8rem;max-width:70ch}
     </div>
   </section>
 
-  <div id="banner" class="banner sample"><b>Datos de ejemplo.</b> Son personas inventadas para mostrar cómo funciona. Subí el reporte real para ver tus datos.</div>
+  <div id="banner" class="banner" hidden></div>
 
   <section class="stats" id="stats" aria-label="Resumen del período"></section>
 
@@ -261,26 +261,6 @@ function parseWorkbook(wb){
   });
   if(!list.length) throw new Error('La hoja Detalle no tiene filas de trabajadores.');
   return {people:list,from:min,to:max,sample:false};
-}
-
-/* ---------- Datos de ejemplo (inventados) ---------- */
-function sampleData(){
-  const from=new Date(Date.UTC(2026,8,6)), to=new Date(Date.UTC(2026,9,6));
-  const mk=(id,nombre,apellido,obj,cuil,diasFalta,opts={})=>{
-    const faltas=diasFalta.map(n=>({f:new Date(Date.UTC(2026,8,n)),aus:true}));
-    return {id,nombre,apellido,obj,cargo:'Operario De Limpieza',cuil,faltas,racha:opts.racha||1,sinMarcas:!!opts.sin,turnos:opts.turnos||22,marcados:opts.sin?0:10};
-  };
-  const people=[
-    mk('900101','Marta Liliana','Ejemplo','Hospital Del Carmen (ejemplo)','27300000011',[8,9,10,11,15,22,29],{racha:4}),
-    mk('900102','Carlos Daniel','Muestra','Hospital Del Carmen (ejemplo)','20300000022',[14,21,28]),
-    mk('900103','Rosa Inés','Prueba','Hospital Del Carmen (ejemplo)','27300000033',[7,8,9],{racha:3}),
-    mk('900104','Jorge Luis','Demo','Puertos (ejemplo)','20300000044',[1,12,19,26].filter(n=>n>5).concat([30]),{}),
-    mk('900105','Ana Belén','Ficticia','Puertos (ejemplo)','27300000055',[7,8,9,10,11,14,15,16,17,18,21,22,23,24,25,28,29,30],{sin:true,racha:18}),
-    mk('900106','Pablo Andrés','Inventado','Banco Provincia Mdq (ejemplo)','20300000066',[16,17,23,24,30],{racha:2}),
-    mk('900107','Lucía','Ejemplar','Banco Provincia Mdq (ejemplo)','27300000077',[11]),
-    mk('900108','Nora Graciela','Supuesta','Banco Provincia Mdq (ejemplo)','27300000088',[]),
-  ];
-  return {people,from,to,sample:true};
 }
 
 /* ---------- Teléfonos y mensaje ---------- */
@@ -418,7 +398,7 @@ function clearAll(){
 }
 document.addEventListener('click',e=>{if(e.target.closest('#clear'))clearAll()});
 
-function setBanner(cls,html){const b=$('#banner');b.className='banner '+cls;b.innerHTML=html}
+function setBanner(cls,html){const b=$('#banner');b.className='banner '+cls;b.innerHTML=html;b.hidden=false}
 function loadFile(f){
   if(!f)return;
   if(typeof XLSX==='undefined'){setBanner('err','<b>No cargó el lector de Excel.</b> Revisá la conexión a internet y recargá la página.');return}
@@ -440,7 +420,7 @@ const drop=$('#drop');
 ['dragleave','drop'].forEach(t=>drop.addEventListener(t,e=>{e.preventDefault();drop.classList.remove('over')}));
 drop.addEventListener('drop',e=>loadFile(e.dataTransfer.files[0]));
 
-data=sampleData(); render();
+render();
 })();
 </script>
 </body>
