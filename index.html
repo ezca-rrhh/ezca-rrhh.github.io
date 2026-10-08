@@ -211,7 +211,7 @@ footer{color:var(--muted);font-size:.8rem;max-width:80ch}
 <div class="wrap">
   <header class="top">
     <div>
-      <div class="eyebrow">RRHH · Reporte Pre-nómina Básico de SIA</div>
+      <div class="eyebrow">RRHH · Asistencia desde SIA</div>
       <h1>Asistencia EZCA</h1>
     </div>
     <div class="files dropmini" id="filesBar" hidden>
@@ -231,7 +231,7 @@ footer{color:var(--muted);font-size:.8rem;max-width:80ch}
     <p class="muted">Arrastrá el Excel acá o elegilo desde la computadora. Se procesa en tu navegador: el archivo no sale de esta PC.</p>
     <label class="btn primary" for="file">Elegir Excel</label>
     <div class="steps">
-      <div><b>1 · Exportá de SIA</b>Reportes → “Pre-nómina Básico” del período que quieras, en Excel.</div>
+      <div><b>1 · Bajá los datos</b>Con “Bajar datos de SIA” (elegís el período y trae también app, fotos y recibos) o el reporte “Pre-nómina Básico” de SIA.</div>
       <div><b>2 · ¿Mes muy pesado?</b>Bajalo por semanas y subí todos los archivos juntos: la página los une.</div>
       <div><b>3 · Mirá el resumen</b>Faltas por día, objetivos con más ausencias y quién conviene dar de baja.</div>
     </div>
@@ -242,6 +242,7 @@ footer{color:var(--muted);font-size:.8rem;max-width:80ch}
     <button class="tab" role="tab" data-tab="resumen" aria-selected="true">Resumen</button>
     <button class="tab" role="tab" data-tab="faltas" aria-selected="false">Faltas <span class="pill crit" id="pFaltas"></span></button>
     <button class="tab" role="tab" data-tab="bajas" aria-selected="false">Para dar de baja <span class="pill" id="pBajas"></span></button>
+    <button class="tab" role="tab" data-tab="app" aria-selected="false" id="tabApp" hidden>App y fotos <span class="pill crit" id="pApp"></span></button>
   </nav>
 
   <section class="panel" id="panel-resumen" hidden>
@@ -302,9 +303,23 @@ footer{color:var(--muted);font-size:.8rem;max-width:80ch}
         <button class="btn sm primary" id="copyBajas" type="button">Copiar legajos marcados</button>
         <span class="muted small" id="selInfo"></span>
       </div>
+      <div class="banner info" id="bajasNota" hidden></div>
       <div class="tbl-bajas" id="tblBajas"></div>
       <p class="muted small">Revisá cada caso antes de dar de baja: alguien con licencia médica o por maternidad también aparece acá.</p>
     </div>
+  </section>
+
+  <section class="panel" id="panel-app" hidden>
+    <div class="kpis" id="appKpis"></div>
+    <div class="card" id="appNota"></div>
+    <div class="tools">
+      <button class="chip" data-af="foto" aria-pressed="true">Sin foto <span class="c" id="cFoto"></span></button>
+      <button class="chip" data-af="sinapp" aria-pressed="false">Sin app <span class="c" id="cSinApp"></span></button>
+      <button class="chip" data-af="vieja" aria-pressed="false">App desactualizada <span class="c" id="cVieja"></span></button>
+      <button class="chip" data-af="inactiva" aria-pressed="false">Sin conexión 7+ días <span class="c" id="cInact"></span></button>
+      <input type="search" id="qApp" class="search" placeholder="Buscar nombre, legajo u objetivo" aria-label="Buscar en app y fotos">
+    </div>
+    <div class="card"><div class="tbl-bajas" id="tblApp"></div></div>
   </section>
 
   <footer id="foot" hidden>Cuenta como falta cada día con turno en que SIA registró AUSENCIA. “Tarde” es un día con turno, sin ausencia y con tardanza registrada. Las personas sin ninguna marcación en todo el período se muestran aparte (en gris) para no mezclarlas con las faltas del personal que trabaja.</footer>
@@ -384,7 +399,22 @@ function parseWorkbook(wb){
       if(ci>=0) for(let i=gh+1;i<G.length;i++){const p=people.get(String(G[i][ii]).trim()); if(p)p.cuil=G[i][ci];}}
   }
   if(!people.size) throw new Error('la hoja Detalle no tiene filas de trabajadores.');
-  return people;
+  return {people,extra:parseExtra(wb)};
+}
+// Hojas que agrega el exportador de EZCA: App, Biometria y Recibos (opcionales)
+function parseExtra(wb){
+  const hoja=n=>{const s=wb.SheetNames.find(x=>norm(x)===n);return s?XLSX.utils.sheet_to_json(wb.Sheets[s],{defval:''}):null};
+  const get=(r,k)=>{for(const c in r) if(norm(c)===k) return r[c]; return ''};
+  const fecha=v=>{if(!v)return null;if(typeof v==='number')return new Date(Date.UTC(1899,11,30)+v*864e5);const d=new Date(String(v).replace(' ','T')+'Z');return isNaN(d)?null:d};
+  const out={};
+  const A=hoja('APP'); if(A){out.app=new Map();
+    for(const r of A){const leg=String(get(r,'LEGAJO')).trim(); if(!leg||norm(get(r,'TIPO'))==='RELOJ')continue;
+      const x={version:String(get(r,'VERSION APP')),ultima:fecha(get(r,'ULTIMA CONEXION')),equipo:String(get(r,'DISPOSITIVO')),so:norm(get(r,'SISTEMA')).startsWith('IOS')?'iPhone':'Android'};
+      const prev=out.app.get(leg); if(!prev||(x.ultima&&(!prev.ultima||x.ultima>prev.ultima)))out.app.set(leg,x);}}
+  const B=hoja('BIOMETRIA'); if(B){out.bio=new Map(); for(const r of B){const leg=String(get(r,'LEGAJO')).trim(); if(leg)out.bio.set(leg,fecha(get(r,'FOTO CARGADA')))}}
+  const C=hoja('RECIBOS'); if(C){out.rec=new Map(); for(const r of C){const leg=String(get(r,'LEGAJO')).trim(); if(!leg)continue;
+    out.rec.set(leg,{recibos:+get(r,'RECIBOS RECIBIDOS')||0,ultimo:fecha(get(r,'ULTIMO RECIBO')),abrio:norm(get(r,'ABRIO EL ULTIMO'))==='SI',apertura:fecha(get(r,'ULTIMA APERTURA'))})}}
+  return out;
 }
 
 /* ---------- Combinar archivos y calcular ---------- */
@@ -420,9 +450,27 @@ function build(){
     else s.otro++;
   }
   const days=[...dayStats.entries()].sort((a,b)=>a[0]<b[0]?-1:1).map(([k,s])=>({k,f:fromKey(k),...s}));
-  data={people,days,from:fromKey(min),to:fromKey(max)};
+  const app=new Map(),bio=new Map(),rec=new Map(); let hasApp=false,hasBio=false,hasRec=false;
+  for(const f of files){const e=f.extra||{};
+    if(e.app){hasApp=true;for(const [k,v] of e.app)app.set(k,v)} if(e.bio){hasBio=true;for(const [k,v] of e.bio)bio.set(k,v)} if(e.rec){hasRec=true;for(const [k,v] of e.rec)rec.set(k,v)}}
+  const vnum=v=>String(v||'').split('.').map(n=>+n||0); const cmpV=(a,b)=>{const x=vnum(a),y=vnum(b);for(let i=0;i<3;i++){if((x[i]||0)!==(y[i]||0))return (x[i]||0)-(y[i]||0)}return 0};
+  // Versión de referencia por sistema: la más usada (las más nuevas suelen estar a medio publicar)
+  const ref={}; for(const a of app.values()){if(!/^\d/.test(a.version))continue;const r=ref[a.so]||(ref[a.so]={c:{}});r.c[a.version]=(r.c[a.version]||0)+1}
+  for(const so in ref){const e=Object.entries(ref[so].c);ref[so].moda=e.sort((a,b)=>b[1]-a[1])[0][0];ref[so].max=e.map(x=>x[0]).sort(cmpV).pop()}
+  const latest=Object.entries(ref).map(([so,r])=>`${so} ${r.moda}`).join(' · ');
+  const fin=fromKey(max);
+  for(const p of people){
+    p.app=hasApp?(app.get(p.id)||null):undefined; p.foto=hasBio?(bio.has(p.id)):undefined; p.rec=hasRec?(rec.get(p.id)||null):undefined;
+    p.appVieja=!!(p.app&&ref[p.app.so]&&cmpV(p.app.version,ref[p.app.so].moda)<0);
+    p.diasSinApp=p.app&&p.app.ultima?Math.floor((fin-p.app.ultima)/864e5):null;
+    // Señales de que la persona sigue trabajando aunque no fiche
+    p.reciboReciente=!!(p.rec&&p.rec.apertura&&(fin-p.rec.apertura)/864e5<=60);
+    p.appReciente=p.diasSinApp!=null&&p.diasSinApp<=30;
+    p.sigueActivo=p.reciboReciente||p.appReciente;
+  }
+  data={people,days,from:fromKey(min),to:fin,hasApp,hasBio,hasRec,latest};
   if(!$('#activos').value) $('#activos').value=people.length;
-  bajasSel=new Set(people.filter(p=>p.sinMarcas).map(p=>p.id));
+  bajasSel=new Set(people.filter(p=>p.sinMarcas&&!p.sigueActivo).map(p=>p.id));
 }
 const periodo=()=>ddyy(data.from)+' al '+ddyy(data.to);
 
@@ -511,6 +559,10 @@ function renderResumen(){
   const ahorro=Math.min(idle.length,extra)*(+$('#precio').value||0);
   const li=[];
   if(idle.length) li.push(['idle',idle.length,`<b>${fmt(idle.length)} personas no marcaron ningún día</b> pero siguen cargadas. Revisalas en “Para dar de baja”${ahorro?`: darlas de baja ahorraría hasta <b>USD ${fmt(ahorro)} por mes</b>`:''}.`]);
+  const sinFoto=data.hasBio?act.filter(p=>p.foto===false):[];
+  if(sinFoto.length){const fs=sinFoto.reduce((s,p)=>s+p.faltas.length,0);li.push(['crit',sinFoto.length,`<b>${fmt(sinFoto.length)} personas que fichan no tienen foto biométrica</b> y acumulan ${fmt(fs)} faltas: SIA puede estar dándolas ausentes. Revisalas en “App y fotos”.`])}
+  const reactiv=idle.filter(p=>p.sigueActivo).length;
+  if(reactiv) li.push(['ok',reactiv,`<b>${fmt(reactiv)} de las que nunca fichan siguen activas</b>: abrieron un recibo o usaron la app hace poco. No conviene darlas de baja.`]);
   li.push(['crit',conAlerta,`<b>${fmt(conAlerta)} personas tienen ${u} o más faltas</b> en el período. Están en la pestaña “Faltas”, listas para consultar por WhatsApp.`]);
   if(peor) li.push(['warn','!',`El día con más ausencias fue el <b>${dayLabel(peor.f)}</b>: faltó el ${pct(peor.falta,peor.turno-peor.sinMarca)}% del personal activo con turno.`]);
   if(wi>=0) li.push(['warn','!',`Los <b>${WD[wi]}</b> son el día de la semana con más faltas (${Math.round(wr*100)}% de los turnos).`]);
@@ -602,10 +654,18 @@ function refreshLinks(){
 /* ---------- Render: Bajas ---------- */
 let bajasList=[];
 function renderBajas(){
-  bajasList=data.people.filter(p=>p.sinMarcas).sort((a,b)=>a.obj.localeCompare(b.obj)||a.apellido.localeCompare(b.apellido));
-  $('#pBajas').textContent=bajasList.length;
-  $('#tblBajas').innerHTML=bajasList.length?`<table><thead><tr><th></th><th>Apellido y nombre</th><th>Legajo</th><th>Objetivo</th><th class="n">Turnos</th><th class="n">Faltas</th></tr></thead><tbody>${
-    bajasList.map(p=>`<tr><td><input type="checkbox" data-baja="${esc(p.id)}" aria-label="Marcar ${esc(p.apellido)}" ${bajasSel.has(p.id)?'checked':''}></td><td>${esc(p.apellido)}, ${esc(p.nombre)}</td><td class="mono">${esc(p.id)}</td><td>${esc(p.obj)}</td><td class="n">${p.turnos}</td><td class="n">${p.faltas.length}</td></tr>`).join('')}</tbody></table>`
+  bajasList=data.people.filter(p=>p.sinMarcas).sort((a,b)=>(a.sigueActivo-b.sigueActivo)||a.obj.localeCompare(b.obj)||a.apellido.localeCompare(b.apellido));
+  const activos=bajasList.filter(p=>p.sigueActivo).length;
+  $('#pBajas').textContent=bajasList.length-activos;
+  const fdate=d=>d?ddyy(d):'';
+  const okTag=t=>`<span class="tag" style="background:var(--accent-soft);color:var(--accent)">${t}</span> `;
+  const recCol=p=>p.rec===undefined?'':!p.rec||!p.rec.recibos?'<span class="muted">No recibió</span>':p.rec.apertura?(p.reciboReciente?okTag('Abrió'):'')+fdate(p.rec.apertura):'<span class="muted">Nunca abrió</span>';
+  const appCol=p=>p.app===undefined?'':!p.app?'<span class="muted">Sin app</span>':(p.appReciente?okTag('Usa la app'):'')+fdate(p.app.ultima);
+  const extra=data.hasRec||data.hasApp;
+  $('#bajasNota').hidden=!extra;
+  $('#bajasNota').innerHTML=extra?`<b>${fmt(activos)} de ${fmt(bajasList.length)}</b> no fichan pero <b>siguen activas</b>: abrieron un recibo en los últimos 60 días o usaron la app en los últimos 30. Quedan al final de la lista y sin marcar.`:'';
+  $('#tblBajas').innerHTML=bajasList.length?`<table><thead><tr><th></th><th>Apellido y nombre</th><th>Legajo</th><th>Objetivo</th><th class="n">Turnos</th>${data.hasRec?'<th>Último recibo abierto</th>':''}${data.hasApp?'<th>App (última conexión)</th>':''}</tr></thead><tbody>${
+    bajasList.map(p=>`<tr${p.sigueActivo?' style="opacity:.7"':''}><td><input type="checkbox" data-baja="${esc(p.id)}" aria-label="Marcar ${esc(p.apellido)}" ${bajasSel.has(p.id)?'checked':''}></td><td>${esc(p.apellido)}, ${esc(p.nombre)}</td><td class="mono">${esc(p.id)}</td><td>${esc(p.obj)}</td><td class="n">${p.turnos}</td>${data.hasRec?`<td>${recCol(p)}</td>`:''}${data.hasApp?`<td>${appCol(p)}</td>`:''}</tr>`).join('')}</tbody></table>`
     :'<div class="empty">Todas las personas del reporte marcaron al menos una vez.</div>';
   renderSavings();
 }
@@ -623,15 +683,46 @@ function renderSavings(){
     <div class="mk" style="left:${X(inc)}%"><span>${fmt(inc)} sin cargo</span></div><div class="mk" style="left:${X(1000)}%"><span>1.000 límite Excel</span></div>`;
 }
 
+/* ---------- Render: App y fotos ---------- */
+let appFilter='foto', appQuery='';
+function renderApp(){
+  const act=data.people.filter(p=>!p.sinMarcas);
+  const L={foto:act.filter(p=>p.foto===false), sinapp:act.filter(p=>p.app===null), vieja:act.filter(p=>p.appVieja), inactiva:act.filter(p=>p.diasSinApp!=null&&p.diasSinApp>=7)};
+  const fAct=act.reduce((s,p)=>s+p.faltas.length,0), fSinFoto=L.foto.reduce((s,p)=>s+p.faltas.length,0);
+  $('#pApp').textContent=data.hasBio?L.foto.length:'';
+  $('#cFoto').textContent=data.hasBio?L.foto.length:'–'; $('#cSinApp').textContent=data.hasApp?L.sinapp.length:'–';
+  $('#cVieja').textContent=data.hasApp?L.vieja.length:'–'; $('#cInact').textContent=data.hasApp?L.inactiva.length:'–';
+  $('#appKpis').innerHTML=`
+    <div class="kpi hero"><span class="l">Personal activo sin foto biométrica</span><span class="v">${data.hasBio?fmt(L.foto.length):'–'}</span>
+      <span class="s">${data.hasBio?`Tienen ${fmt(fSinFoto)} de las ${fmt(fAct)} faltas del período (${pct(fSinFoto,fAct)}%). Sin foto, SIA no las reconoce y las da ausentes.`:'Falta la hoja Biometria.'}</span></div>
+    <div class="kpi"><span class="v">${data.hasApp?fmt(L.sinapp.length):'–'}</span><span class="l">sin la app instalada</span><span class="s">fichan solo en reloj o kiosco, o no fichan</span></div>
+    <div class="kpi"><span class="v">${data.hasApp?fmt(L.vieja.length):'–'}</span><span class="l">con la app desactualizada</span><span class="s">por debajo de la más usada: ${esc(data.latest||'–')}</span></div>
+    <div class="kpi"><span class="v">${data.hasApp?fmt(L.inactiva.length):'–'}</span><span class="l">sin conexión hace 7 días o más</span><span class="s">al ${ddyy(data.to)}</span></div>`;
+  $('#appNota').innerHTML=`<p class="small muted">Solo personal que fichó al menos una vez en el período. Quienes nunca ficharon están en “Para dar de baja”. Para cargar una foto o actualizar la app, buscá a la persona en SIA.</p>`;
+  $$('[data-af]').forEach(b=>b.setAttribute('aria-pressed',String(b.dataset.af===appFilter)));
+  let list=L[appFilter]||[]; const q=norm(appQuery);
+  if(q) list=list.filter(p=>norm(p.nombre+' '+p.apellido+' '+p.id+' '+p.obj).includes(q));
+  list=[...list].sort((a,b)=>b.faltas.length-a.faltas.length||a.apellido.localeCompare(b.apellido));
+  const fdate=d=>d?ddyy(d):'';
+  $('#tblApp').innerHTML=list.length?`<table><thead><tr><th>Apellido y nombre</th><th>Legajo</th><th>Objetivo</th><th class="n">Faltas</th><th>Foto</th><th>App</th><th>Última conexión</th></tr></thead><tbody>${
+    list.map(p=>`<tr><td>${esc(p.apellido)}, ${esc(p.nombre)}</td><td class="mono">${esc(p.id)}</td><td>${esc(p.obj)}</td><td class="n">${p.faltas.length}</td>
+      <td>${p.foto===undefined?'':p.foto?'Sí':'<span class="tag crit">Sin foto</span>'}</td>
+      <td>${p.app===undefined?'':!p.app?'<span class="tag idle">Sin app</span>':esc(p.app.version)+(p.appVieja?' <span class="tag crit">vieja</span>':'')}</td>
+      <td>${p.app?fdate(p.app.ultima)+(p.diasSinApp>=7?` <span class="muted">(${p.diasSinApp} días)</span>`:''):''}</td></tr>`).join('')}</tbody></table>`
+    :`<div class="empty">${q?'Nadie coincide con la búsqueda.':'No hay nadie en este grupo.'}</div>`;
+}
+
 /* ---------- Render general ---------- */
 function render(){
   const has=!!data;
   $('#emptyState').hidden=has; $('#tabs').hidden=!has; $('#filesBar').hidden=!has; $('#foot').hidden=!has;
-  for(const t of ['resumen','faltas','bajas']) $('#panel-'+t).hidden=!has||tab!==t;
+  if(has&&tab==='app'&&!(data.hasApp||data.hasBio)) tab='resumen';
+  $('#tabApp').hidden=!(has&&(data.hasApp||data.hasBio));
+  for(const t of ['resumen','faltas','bajas','app']) $('#panel-'+t).hidden=!has||tab!==t;
   $$('.tab').forEach(b=>b.setAttribute('aria-selected',String(b.dataset.tab===tab)));
   $('#fileChips').innerHTML=files.map((f,i)=>`<span class="fchip" title="${esc(f.name)}"><span>${esc(f.name)}</span><button type="button" data-rm="${i}" aria-label="Quitar ${esc(f.name)}">×</button></span>`).join('');
   if(!has) return;
-  renderFaltas(); renderBajas();
+  renderFaltas(); renderBajas(); if(data.hasApp||data.hasBio) renderApp();
   if(tab==='resumen') renderResumen();
 }
 
@@ -649,9 +740,10 @@ document.addEventListener('click',e=>{
   const tb=t.closest('.tab'); if(tb){tab=tb.dataset.tab;render();return}
   const c=t.closest('[data-copy]'); if(c){const [gi,pi]=c.dataset.copy.split(':');copy(msgPerson(current[gi].arr[pi]),'Mensaje copiado');return}
   const cg=t.closest('[data-copyg]'); if(cg){const g=current[cg.dataset.copyg];copy(msgGroup(g.obj,g.arr),'Mensaje copiado');return}
-  const ch=t.closest('.chip'); if(ch){filter=ch.dataset.f;$$('.chip').forEach(x=>x.setAttribute('aria-pressed',String(x===ch)));renderFaltas();return}
+  const af=t.closest('[data-af]'); if(af){appFilter=af.dataset.af;renderApp();return}
+  const ch=t.closest('.chip[data-f]'); if(ch){filter=ch.dataset.f;$$('.chip[data-f]').forEach(x=>x.setAttribute('aria-pressed',String(x===ch)));renderFaltas();return}
   const rm=t.closest('[data-rm]'); if(rm){files.splice(+rm.dataset.rm,1);build();render();return}
-  if(t.closest('#clear')){files.length=0;data=null;query='';$('#q').value='';$('#file').value='';$('#activos').value='';tab='resumen';
+  if(t.closest('#clear')){files.length=0;data=null;query='';$('#q').value='';$('#file').value='';$('#activos').value='';tab='resumen';appFilter='foto';appQuery='';$('#qApp').value='';
     setBanner('info','Listo, se borró todo. Podés subir otro Excel.');render();window.scrollTo({top:0,behavior:'smooth'});return}
   if(t.closest('#selAll')){bajasList.forEach(p=>bajasSel.add(p.id));renderBajas();return}
   if(t.closest('#selNone')){bajasSel.clear();renderBajas();return}
@@ -668,6 +760,7 @@ document.addEventListener('input',e=>{
   if(t.id==='telDefault'){store.set('telDefault',t.value);refreshLinks();$$('input[data-obj]').forEach(i=>i.placeholder=t.value||'Usa el número general')}
   if(t.id==='umbral'){store.set('umbral',t.value);if(data){renderFaltas()}}
   if(t.id==='q'){query=t.value;renderFaltas()}
+  if(t.id==='qApp'){appQuery=t.value;renderApp()}
   if(['activos','incluidos','precio'].includes(t.id)){if(t.id!=='activos')store.set(t.id,t.value);if(data)renderSavings()}
 });
 let rz; window.addEventListener('resize',()=>{clearTimeout(rz);rz=setTimeout(()=>{if(data&&tab==='resumen')drawDays()},150)});
@@ -681,9 +774,9 @@ async function loadFiles(list){
   for(const f of list){
     try{
       const buf=await f.arrayBuffer();
-      const people=parseWorkbook(XLSX.read(new Uint8Array(buf),{type:'array'}));
+      const res=parseWorkbook(XLSX.read(new Uint8Array(buf),{type:'array'}));
       const i=files.findIndex(x=>x.name===f.name); if(i>=0)files.splice(i,1);
-      files.push({name:f.name,people});
+      files.push({name:f.name,people:res.people,extra:res.extra});
     }catch(err){errs.push(`<b>${esc(f.name)}</b>: ${esc(err.message||err)}`)}
   }
   $('#file').value='';
